@@ -12,7 +12,6 @@
 
 (license Apache-2.0)
 
-(documentation https://url/to/documentation)
 
 (package
  (name ocaml-grad)
