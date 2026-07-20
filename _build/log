@@ -1,0 +1,17 @@
+# dune build
+# OCAMLPARAM: unset
+# Shared cache: enabled-except-user-rules
+# Shared cache location: /home/lapka/.cache/dune/db
+# Workspace root: /home/lapka/projects/ml-ai/ocaml-grad
+# Auto-detected concurrency: 16
+# Dune context:
+#  { name = "default"
+#  ; kind = "default"
+#  ; profile = Dev
+#  ; merlin = true
+#  ; fdo_target_exe = None
+#  ; build_dir = In_build_dir "default"
+#  ; instrument_with = []
+#  }
+$ /home/lapka/.opam/default/bin/ocamlc.opt -config > /tmp/dune_38e85b_output
+# Promoting "_build/default/ocaml-grad.opam" to "ocaml-grad.opam"
