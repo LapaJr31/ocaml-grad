@@ -1,22 +1,21 @@
 (lang dune 3.20)
 
-(name ocaml-grad)
+(name mentat)
 
 (generate_opam_files true)
 
 (source
- (github LapaJr31/ocaml-grad))
+ (github LapaJr31/mentat))
 
 (authors "Yaroslav Latypov <jarlat04@lapuas.xyz>")
 
-
 (license Apache-2.0)
 
-
 (package
- (name ocaml-grad)
- (synopsis "A short synopsis")
- (description "A longer description")
- (depends ocaml)
+ (name mentat)
+ (synopsis "A machine learning and linear algebra library in OCaml")
+ (description "Mentat is an OCaml library providing n-dimensional tensors, broadcasting, and matrix operations.")
+ (depends
+  (ocaml (>= 4.14.0)))
  (tags
-  ("add topics" "to describe" your project)))
+  ("machine-learning" "linear-algebra" "tensor" "dune" "ocaml")))

@@ -1,4 +1,4 @@
-module T = Tensor.Tensor
+module T = Mentat.Tensor
 
 let print_shape shape =
   let shape_str =
@@ -31,7 +31,7 @@ let print_tensor tensor =
       if !starts_here then print_string "["
     done;
 
-    print_float tensor.T.storage.{i};
+    print_float tensor.storage.{i};
 
     let trailing_closes = ref 0 in
     for d = num_dims - 1 downto 0 do
@@ -66,8 +66,8 @@ let () =
   (* let random_tensor = T.random [|5;5;5|] (1.0, 5.0) 42 in *)
   (* print_tensor random_tensor; *)
 
-  let t3 = T.random [|3; 1|] (1.0, 5.0) 42 in
-  let t4 = T.random [|1; 4|] (1.0, 5.0) 42 in
+  let t3 = T.random [|3; 1|] (1.0, 5.0) ~seed:42 () in
+  let t4 = T.random [|1; 4|] (1.0, 5.0) ~seed:99 () in
 
   print_string "\n Addition \n";
   let sum = T.(t3 + t4) in
@@ -80,3 +80,15 @@ let () =
   print_string "\n Multiplication \n";
   let mult = T.(t3 * t4) in
   print_tensor mult;
+
+  print_string "\n 1st Row of t3 \n";
+  let row_t3_1 = T.get_row t3 1 in
+  print_tensor row_t3_1;
+
+  print_string "\n 2nd Col of t4 \n";
+  let col_t4_2 = T.get_col t4 3 in
+  print_tensor col_t4_2;
+
+  print_string "\n Matmul \n";
+  let res = T.matmul t3 t4 in
+  print_tensor res;

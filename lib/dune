@@ -1,2 +1,9 @@
 (library
- (name ocaml_grad))
+ (name mentat)
+ (public_name mentat)
+ (modules tensor blas)
+ (foreign_stubs
+  (language c)
+  (names blas_stubs)
+  (flags (-I/usr/include/openblas)))
+ (c_library_flags (-lopenblas)))
