@@ -18,8 +18,10 @@ module type TENSOR = sig
   val shape : t -> int array
   val random: int array -> float * float -> int -> t
 
-  (* Operators *)
-  val (+): t -> t -> t
+  (* Operators — Note spaces inside ( * ) *)
+  val ( + ) : t -> t -> t
+  val ( - ) : t -> t -> t
+  val ( * ) : t -> t -> t
 end
 
 module Tensor : TENSOR = struct
@@ -31,11 +33,10 @@ module Tensor : TENSOR = struct
     storage : (float, float32_elt, c_layout) Bigarray.Array1.t;
   }
 
-  (*PUBLIC helper functions *)
+  (* PUBLIC helper functions *)
   let shape t = t.shape
 
   let len t = Bigarray.Array1.dim t.storage
-
 
   (* PRIVATE helper functions *)
   let compute_strides shape =
@@ -59,7 +60,7 @@ module Tensor : TENSOR = struct
     let diff = target_ndim - current_ndim in
     if diff <= 0 then shape
     else
-      Array.append  (Array.make diff 1) shape
+      Array.append (Array.make diff 1) shape
 
   let broadcast_shape s1 s2 =
     let n = Array.length s1 in
@@ -86,6 +87,35 @@ module Tensor : TENSOR = struct
     done;
     !acc
 
+  let elementwise op tensor1 tensor2 =
+    let shape1 = tensor1.shape in
+    let shape2 = tensor2.shape in
+
+    let target_ndim = max (Array.length shape1) (Array.length shape2) in
+    let padded_shape1 = pad_shape_left target_ndim shape1 in
+    let padded_shape2 = pad_shape_left target_ndim shape2 in
+    let padded_strides1 = compute_strides padded_shape1 in
+    let padded_strides2 = compute_strides padded_shape2 in
+
+    let out_shape = broadcast_shape padded_shape1 padded_shape2 in
+    let result = create out_shape in
+    let n = Array.length out_shape in
+    let multi_idx = Array.make n 0 in
+    let total = Array.fold_left ( * ) 1 out_shape in
+
+    for flat_out = 0 to total - 1 do
+      let fa = flat_idx padded_shape1 padded_strides1 multi_idx in
+      let fb = flat_idx padded_shape2 padded_strides2 multi_idx in
+      result.storage.{flat_out} <- op tensor1.storage.{fa} tensor2.storage.{fb};
+
+      let j = ref (n - 1) in
+      while !j >= 0 && (multi_idx.(!j) <- multi_idx.(!j) + 1; multi_idx.(!j) = out_shape.(!j)) do
+        multi_idx.(!j) <- 0;
+        j := !j - 1
+      done
+    done;
+    result
+
   (* Initialization functions *)
   let empty input_shape = create input_shape
 
@@ -105,46 +135,23 @@ module Tensor : TENSOR = struct
     t
 
   let random input_shape (x, y) seed =
-      Random.init seed;
+    Random.init seed;
+    let min_val = min x y in
+    let max_val = max x y in
+    let span = max_val -. min_val in
 
-      let min_val = min x y in
-      let max_val = max x y in
-      let span = max_val -. min_val in
+    let size = Array.fold_left ( * ) 1 input_shape in
+    let t = create input_shape in
 
-      let size = Array.fold_left ( * ) 1 input_shape in
-      let t = create input_shape in
-
-      for i = 0 to size - 1 do
-        let rand_val = min_val +. Random.float span in
-        Array1.set t.storage i rand_val
-      done;
-      t
-
-  let (+) tensor1 tensor2 =
-    let shape1 = tensor1.shape in
-    let shape2 = tensor2.shape in
-
-    let target_ndim = max (Array.length shape1) (Array.length shape2) in
-    let padded_shape1 = pad_shape_left target_ndim shape1 in
-    let padded_shape2 = pad_shape_left target_ndim shape2 in
-    let padded_strides1 = compute_strides padded_shape1 in
-    let padded_strides2 = compute_strides padded_shape2 in
-
-    let out_shape = broadcast_shape padded_shape1 padded_shape2 in
-    let result = create out_shape in
-    let n = Array.length out_shape in
-    let multi_idx = Array.make n 0 in
-    let total = Array.fold_left ( * ) 1 out_shape in
-    for flat_out = 0 to total - 1 do
-      let fa = flat_idx padded_shape1 padded_strides1 multi_idx in
-      let fb = flat_idx padded_shape2 padded_strides2 multi_idx in
-      result.storage.{flat_out} <- tensor1.storage.{fa} +. tensor2.storage.{fb};
-      let j = ref (n - 1) in
-      while !j >= 0 && (multi_idx.(!j) <- multi_idx.(!j) + 1; multi_idx.(!j) = out_shape.(!j)) do
-        multi_idx.(!j) <- 0;
-        j := !j - 1
-      done
+    for i = 0 to size - 1 do
+      let rand_val = min_val +. Random.float span in
+      Array1.set t.storage i rand_val
     done;
-    result
+    t
+
+  (* Operators *)
+  let ( + ) t1 t2 = elementwise ( +. ) t1 t2
+  let ( - ) t1 t2 = elementwise ( -. ) t1 t2
+  let ( * ) t1 t2 = elementwise ( *. ) t1 t2
 
 end

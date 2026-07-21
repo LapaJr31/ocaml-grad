@@ -68,5 +68,15 @@ let () =
 
   let t3 = T.random [|3; 1|] (1.0, 5.0) 42 in
   let t4 = T.random [|1; 4|] (1.0, 5.0) 42 in
+
+  print_string "\n Addition \n";
   let sum = T.(t3 + t4) in
-  print_tensor sum
+  print_tensor sum;
+
+  print_string "\n Subtraction \n";
+  let sub = T.(t3 - t4) in
+  print_tensor sub;
+
+  print_string "\n Multiplication \n";
+  let mult = T.(t3 * t4) in
+  print_tensor mult;
