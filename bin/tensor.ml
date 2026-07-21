@@ -5,11 +5,15 @@ module type TENSOR = sig
   type t = {
     shape : int array;
     strides : int array;
+    offset: int;
     storage : (float, float32_elt, c_layout) Bigarray.Array1.t;
   }
 
   (* Helpers *)
   val len : t -> int
+  val slice : t -> (int * int) array -> t
+  val get_row : t -> int -> t
+  val get_col : t -> int -> t
 
   (* Initialization *)
   val empty : int array -> t
@@ -18,10 +22,14 @@ module type TENSOR = sig
   val shape : t -> int array
   val random: int array -> float * float -> int -> t
 
-  (* Operators — Note spaces inside ( * ) *)
+  (* Basic arithmetic Operators *)
   val ( + ) : t -> t -> t
   val ( - ) : t -> t -> t
   val ( * ) : t -> t -> t
+
+  (* Linear algebra functions *)
+  val matmul : t -> t -> t
+
 end
 
 module Tensor : TENSOR = struct
@@ -30,6 +38,7 @@ module Tensor : TENSOR = struct
   type t = {
     shape : int array;
     strides : int array;
+    offset: int;
     storage : (float, float32_elt, c_layout) Bigarray.Array1.t;
   }
 
@@ -53,7 +62,8 @@ module Tensor : TENSOR = struct
     let strides = compute_strides input_shape in
     let total_size = Array.fold_left ( * ) 1 input_shape in
     let storage = Array1.create float32 c_layout total_size in
-    { shape = input_shape; strides; storage }
+    let offset = 0 in
+    { shape = input_shape; strides; offset; storage }
 
   let pad_shape_left target_ndim shape =
     let current_ndim = Array.length shape in
@@ -79,11 +89,10 @@ module Tensor : TENSOR = struct
     done;
     out
 
-  let flat_idx padded_shape real_strides multi_idx =
-    let acc = ref 0 in
-    for d = 0 to Array.length padded_shape - 1 do
-      if padded_shape.(d) <> 1 then
-        acc := !acc + (multi_idx.(d) * real_strides.(d))
+  let flat_idx t multi_idx =
+    let acc = ref t.offset in
+    for d = 0 to Array.length t.shape - 1 do
+      acc := !acc + multi_idx.(d) * t.strides.(d)
     done;
     !acc
 
@@ -94,8 +103,6 @@ module Tensor : TENSOR = struct
     let target_ndim = max (Array.length shape1) (Array.length shape2) in
     let padded_shape1 = pad_shape_left target_ndim shape1 in
     let padded_shape2 = pad_shape_left target_ndim shape2 in
-    let padded_strides1 = compute_strides padded_shape1 in
-    let padded_strides2 = compute_strides padded_shape2 in
 
     let out_shape = broadcast_shape padded_shape1 padded_shape2 in
     let result = create out_shape in
@@ -103,9 +110,12 @@ module Tensor : TENSOR = struct
     let multi_idx = Array.make n 0 in
     let total = Array.fold_left ( * ) 1 out_shape in
 
+    let t1_padded = { tensor1 with shape = padded_shape1; strides = compute_strides padded_shape1 } in
+    let t2_padded = { tensor2 with shape = padded_shape2; strides = compute_strides padded_shape2 } in
+
     for flat_out = 0 to total - 1 do
-      let fa = flat_idx padded_shape1 padded_strides1 multi_idx in
-      let fb = flat_idx padded_shape2 padded_strides2 multi_idx in
+      let fa = flat_idx t1_padded multi_idx in
+      let fb = flat_idx t2_padded multi_idx in
       result.storage.{flat_out} <- op tensor1.storage.{fa} tensor2.storage.{fb};
 
       let j = ref (n - 1) in
@@ -115,6 +125,34 @@ module Tensor : TENSOR = struct
       done
     done;
     result
+
+  let check_matmul_compatible t1 t2 =
+    let shape_a = t1.shape in
+    let shape_b = t2.shape in
+
+    let dims_a = Array.length shape_a in
+    let dims_b = Array.length shape_b in
+
+    if dims_a < 2 || dims_b < 2 then
+      false
+    else
+      let cols_a = shape_a.(dims_a - 1) in
+      let rows_b = shape_b.(dims_b - 2) in
+      cols_a = rows_b
+
+  let slice t ranges =
+    let ndim = Array.length t.shape in
+    let new_shape = Array.copy t.shape in
+    let new_offset = ref t.offset in
+    for d = 0 to ndim - 1 do
+      let (start, stop) = ranges.(d) in
+      new_offset := !new_offset + start * t.strides.(d);
+      new_shape.(d) <- stop - start
+    done;
+    { t with shape = new_shape; offset = !new_offset }
+
+  let get_row t i = slice t [| (i, i+1); (0, t.shape.(1)) |]
+  let get_col t j = slice t [| (0, t.shape.(0)); (j, j+1) |]
 
   (* Initialization functions *)
   let empty input_shape = create input_shape
@@ -152,6 +190,14 @@ module Tensor : TENSOR = struct
   (* Operators *)
   let ( + ) t1 t2 = elementwise ( +. ) t1 t2
   let ( - ) t1 t2 = elementwise ( -. ) t1 t2
+  (* THIS IS ELEMENTWISE MULTIPLICATION NOT MATMUL *)
   let ( * ) t1 t2 = elementwise ( *. ) t1 t2
+
+  (* Broken for now, i just need linter to calm down *)
+  let matmul t1 t2 =
+    let t = create t1.shape in
+    if not (check_matmul_compatible t1 t2) then
+      raise Shape_mismatch;
+      t
 
 end
