@@ -63,5 +63,10 @@ let () =
   let tensor = T.of_data [|2; 3|] [|1.0; 2.0; 3.0; 4.0; 5.0; 6.0|] in
   print_tensor tensor;
 
-  let random_tensor = T.random [|5;5|] (1.0, 5.0) 42 in
-  print_tensor random_tensor
+  (* let random_tensor = T.random [|5;5;5|] (1.0, 5.0) 42 in *)
+  (* print_tensor random_tensor; *)
+
+  let t3 = T.random [|3; 1|] (1.0, 5.0) 42 in
+  let t4 = T.random [|1; 4|] (1.0, 5.0) 42 in
+  let sum = T.(t3 + t4) in
+  print_tensor sum
