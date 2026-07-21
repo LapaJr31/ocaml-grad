@@ -14,8 +14,8 @@
 (package
  (name mentat)
  (synopsis "A machine learning and linear algebra library in OCaml")
- (description "Mentat is an OCaml library providing n-dimensional tensors, broadcasting, and matrix operations.")
+ (description "Mentat is an OCaml library providing jack shit for now.")
  (depends
   (ocaml (>= 4.14.0)))
  (tags
-  ("machine-learning" "linear-algebra" "tensor" "dune" "ocaml")))
+  ("machine-learning" "linear-algebra" "tensor" "dune" "openBLAS")))

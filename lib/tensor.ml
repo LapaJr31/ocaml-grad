@@ -179,6 +179,7 @@ let ( - ) t1 t2 = elementwise ( -. ) t1 t2
 (* THIS IS ELEMENTWISE MULTIPLICATION NOT MATMUL *)
 let ( * ) t1 t2 = elementwise ( *. ) t1 t2
 
+(* Now this is some proper matmul *)
 let matmul t1 t2 =
   if not (check_matmul_compatible t1 t2) then
     raise Shape_mismatch
