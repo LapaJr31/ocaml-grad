@@ -1,4 +1,5 @@
 (executable
  (public_name ocaml-grad)
  (name main)
- (libraries ocaml_grad))
+ (libraries bigarray)
+ (modes byte exe))
