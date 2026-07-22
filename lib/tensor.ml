@@ -9,12 +9,9 @@ type t = {
   storage : (float, float32_elt, c_layout) Bigarray.Array1.t;
 }
 
-(* PUBLIC helper functions *)
-let shape t = t.shape
 
 let len t = Bigarray.Array1.dim t.storage
 
-(* PRIVATE helper functions *)
 let compute_strides shape =
   let len = Array.length shape in
   let current_product = ref 1 in
@@ -38,6 +35,14 @@ let pad_shape_left target_ndim shape =
   if diff <= 0 then shape
   else
     Array.append (Array.make diff 1) shape
+
+
+let pad_strides_left target_ndim strides =
+  let current_ndim = Array.length strides in
+  let diff = target_ndim - current_ndim in
+  if diff <= 0 then strides
+  else
+    Array.append (Array.make diff 0) strides
 
 let broadcast_shape s1 s2 =
   let n = Array.length s1 in
@@ -84,8 +89,8 @@ let elementwise op tensor1 tensor2 =
   let multi_idx = Array.make n 0 in
   let total = Array.fold_left ( * ) 1 out_shape in
 
-  let s1 = compute_strides padded_shape1 in
-  let s2 = compute_strides padded_shape2 in
+  let s1 = pad_strides_left target_ndim tensor1.strides in
+  let s2 = pad_strides_left target_ndim tensor2.strides in
 
   let t1_padded = {
     tensor1 with
@@ -111,17 +116,30 @@ let elementwise op tensor1 tensor2 =
   done;
   result
 
-let check_matmul_compatible t1 t2 =
-  let shape_a = t1.shape in
-  let shape_b = t2.shape in
-  let dims_a = Array.length shape_a in
-  let dims_b = Array.length shape_b in
-  if dims_a < 2 || dims_b < 2 then false
-  else begin
-    let cols_a = shape_a.(dims_a - 1) in
-    let rows_b = shape_b.(dims_b - 2) in
-    cols_a = rows_b
-  end
+let contiguous t =
+  let total = Array.fold_left ( * ) 1 t.shape in
+  let dst = create t.shape in
+  let n = Array.length t.shape in
+  let multi_idx = Array.make n 0 in
+  for flat = 0 to total - 1 do
+    let src = flat_idx t multi_idx in
+    dst.storage.{flat} <- t.storage.{src};
+    let j = ref (n - 1) in
+    while !j >= 0 && (multi_idx.(!j) <- multi_idx.(!j) + 1; multi_idx.(!j) = t.shape.(!j)) do
+      multi_idx.(!j) <- 0;
+      j := !j - 1
+    done
+  done;
+  dst
+
+let is_contiguous t =
+  t.offset = 0
+  && t.strides = compute_strides t.shape
+  && len t = Array.fold_left ( * ) 1 t.shape
+
+let ensure_contiguous t = if is_contiguous t then t else contiguous t
+
+let shape t = t.shape
 
 let slice t ranges =
   let ndim = Array.length t.shape in
@@ -136,6 +154,23 @@ let slice t ranges =
 
 let get_row t i = slice t [| (i, i+1); (0, t.shape.(1)) |]
 let get_col t j = slice t [| (0, t.shape.(0)); (j, j+1) |]
+
+let get t coords = t.storage.{flat_idx t coords}
+
+let to_array t =
+  let total = Array.fold_left ( * ) 1 t.shape in
+  let result = Array.make total 0.0 in
+  let n = Array.length t.shape in
+  let multi_idx = Array.make n 0 in
+  for flat = 0 to total - 1 do
+    result.(flat) <- t.storage.{flat_idx t multi_idx};
+    let j = ref (n - 1) in
+    while !j >= 0 && (multi_idx.(!j) <- multi_idx.(!j) + 1; multi_idx.(!j) = t.shape.(!j)) do
+      multi_idx.(!j) <- 0;
+      j := !j - 1
+    done
+  done;
+  result
 
 (* Initialization functions *)
 let empty input_shape = create input_shape
@@ -181,16 +216,95 @@ let ( * ) t1 t2 = elementwise ( *. ) t1 t2
 
 (* Now this is some proper matmul *)
 let matmul t1 t2 =
-  if not (check_matmul_compatible t1 t2) then
-    raise Shape_mismatch
-  else
-  let ndim1 = Array.length t1.shape in
-  let ndim2 = Array.length t2.shape in
+  let open Stdlib in
+  let sa = t1.shape and sb = t2.shape in
+  let na = Array.length sa and nb = Array.length sb in
+  if na < 2 || nb < 2 then raise Shape_mismatch;
+  let m = sa.(na-2) and k = sa.(na-1) in
+  if k <> sb.(nb-2) then raise Shape_mismatch;
+  let n = sb.(nb-1) in
 
-  let ( - ) = Stdlib.( - ) in
-  let m = t1.shape.(ndim1 - 2) in
-  let k = t1.shape.(ndim1 - 1) in
-  let n = t2.shape.(ndim2 - 1) in
-  let result = zeros [| m; n |] in
-  Blas.cblas_gemm m n k t1.storage t2.storage result.storage;
+  let batch_a = Array.sub sa 0 (na-2) and batch_b = Array.sub sb 0 (nb-2) in
+  let nd = max (Array.length batch_a) (Array.length batch_b) in
+  let pba = pad_shape_left nd batch_a and pbb = pad_shape_left nd batch_b in
+  let out_batch = broadcast_shape pba pbb in
+  let out_shape = Array.append out_batch [| m; n |] in
+
+  let t1 = ensure_contiguous t1 and t2 = ensure_contiguous t2 in
+  let sa_batch = broadcast_strides out_batch pba
+                   (pad_strides_left nd (Array.sub t1.strides 0 (na-2))) in
+  let sb_batch = broadcast_strides out_batch pbb
+                   (pad_strides_left nd (Array.sub t2.strides 0 (nb-2))) in
+
+  let result = zeros out_shape in
+  let total = Array.fold_left ( * ) 1 out_batch in
+  let idx = Array.make nd 0 in
+  for c = 0 to total - 1 do
+    let aoff = ref 0 and boff = ref 0 in
+    for d = 0 to nd - 1 do
+      aoff := !aoff + idx.(d) * sa_batch.(d);
+      boff := !boff + idx.(d) * sb_batch.(d)
+    done;
+    Blas.cblas_gemm m n k
+      (Array1.sub t1.storage !aoff (m*k))
+      (Array1.sub t2.storage !boff (k*n))
+      (Array1.sub result.storage (c*m*n) (m*n));
+    let j = ref (nd-1) in
+    while !j >= 0 && (idx.(!j) <- idx.(!j)+1; idx.(!j) = out_batch.(!j)) do
+      idx.(!j) <- 0; j := !j - 1
+    done
+  done;
   result
+
+(* Printing *)
+let print_shape shape =
+  let shape_str =
+    Array.to_list shape
+    |> List.map string_of_int
+    |> String.concat ", "
+  in
+  print_endline ("[" ^ shape_str ^ "]")
+
+let print_tensor tensor =
+  let open Stdlib in
+  let data = to_array tensor in
+  let shape = shape tensor in
+  let total_len = Array.fold_left ( * ) 1 shape in
+  let num_dims = Array.length shape in
+
+  if num_dims = 0 then print_endline "[]" else
+
+  for i = 0 to total_len - 1 do
+    let coords = Array.make num_dims 0 in
+    let temp = ref i in
+    for d = num_dims - 1 downto 0 do
+      coords.(d) <- !temp mod shape.(d);
+      temp := !temp / shape.(d)
+    done;
+
+    for d = 0 to num_dims - 1 do
+      let starts_here = ref true in
+      for k = d to num_dims - 1 do
+        if coords.(k) <> 0 then starts_here := false
+      done;
+      if !starts_here then print_string "["
+    done;
+
+    print_float data.(i);
+
+    let trailing_closes = ref 0 in
+    for d = num_dims - 1 downto 0 do
+      let ends_here = ref true in
+      for k = d to num_dims - 1 do
+        if coords.(k) <> shape.(k) - 1 then ends_here := false
+      done;
+      if !ends_here then incr trailing_closes
+    done;
+
+    if !trailing_closes > 0 then begin
+      for _ = 1 to !trailing_closes do print_string "]" done;
+      if i < total_len - 1 then print_string ",\n "
+    end else
+      print_string ", "
+  done;
+  print_newline ()
